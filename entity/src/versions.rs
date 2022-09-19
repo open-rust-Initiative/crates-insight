@@ -3,18 +3,22 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "categories")]
+#[sea_orm(table_name = "versions")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    #[sea_orm(unique)]
-    pub category: String,
-    #[sea_orm(unique)]
-    pub slug: String,
-    pub description: String,
-    pub crates_cnt: i32,
+    pub crate_id: i32,
+    pub num: String,
+    pub updated_at: DateTime,
     pub created_at: DateTime,
-    pub path: String,
+    pub downloads: i32,
+    pub features: Json,
+    pub yanked: bool,
+    pub license: Option<String>,
+    pub crate_size: Option<i32>,
+    pub published_by: Option<i32>,
+    pub checksum: String,
+    pub links: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

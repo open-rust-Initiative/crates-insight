@@ -27,6 +27,7 @@ async fn main() -> anyhow::Result<()> {
 
     dotenv::dotenv().ok();
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
+    let db_url_pg = env::var("DATABASE_URL_PG").expect("DATABASE_URL_PG is not set in .env file");
     let host = env::var("HOST").expect("HOST is not set in .env file");
     let port = env::var("PORT").expect("PORT is not set in .env file");
     let server_url = format!("{}:{}", host, port);
@@ -36,25 +37,35 @@ async fn main() -> anyhow::Result<()> {
         .expect("Database connection failed");
 
 
-    let pg_conn = Database::connect("postgres://postgres:postgres@localhost/axum_example")
+    let pg_conn = Database::connect(db_url_pg)
         .await
         .expect("Database connection failed");
 
 
+    let data_source = DataSource {
+        postgres: pg_conn,
+        mysql : mysql_conn
+    };
 
-    let conn_vec = vec![mysql_conn, pg_conn];
+    // let conn_vec = vec![mysql_conn, pg_conn];
     let app = Router::new()
         .route("/sync", post(sync_crates_table))
         .layer(
             ServiceBuilder::new()
                 .layer(CookieManagerLayer::new())
-                .layer(Extension(conn_vec))
+                .layer(Extension(data_source))
         );
 
     let addr = SocketAddr::from_str(&server_url).unwrap();
     Server::bind(&addr).serve(app.into_make_service()).await?;
 
     Ok(())
+}
+
+#[derive( Clone)]
+struct DataSource {
+    pub postgres: DatabaseConnection,
+    pub mysql : DatabaseConnection,
 }
 
 #[derive(Deserialize)]
@@ -69,18 +80,27 @@ struct FlashData {
     message: String,
 }
 
+
+/// sync table data from pg to mysql
 async fn sync_crates_table (
-    Extension(ref conn_vec): Extension<Vec<DatabaseConnection>>,
-    Query(params): Query<Params>,
+    Extension(ref data_source): Extension<DataSource>,
     mut cookies: Cookies,
 ) -> Result<PostResponse, (StatusCode, &'static str)> {
-
-
-    Categories::find()
-    // .filter(cake::Column::Name.contains("chocolate"))
+    let models: Vec<categories::Model> = Categories::find()
     .order_by_asc(categories::Column::Id)
-    .all(&conn_vec[0])
-    .await.expect("msg");
+    .all(&data_source.postgres)
+    .await.expect("something wrong when sync categories");
+
+    let mut categories: Vec<categories::ActiveModel> = Vec::new();
+    // convert Model to ActiveModel
+    for model in models {
+        let category = model.into();
+        categories.push(category);
+    }
+
+    Categories::insert_many(categories)
+    .exec(&data_source.mysql)
+    .await.expect("something wrong when sync categories");
 
     let data = FlashData {
         kind: "success".to_owned(),

@@ -6,7 +6,7 @@ use axum::{
     routing::{get, get_service, post},
     Router, Server,
 };
-use entity::{categories};
+use entity::{categories, keywords};
 use flash::{post_response, PostResponse};
 
 use categories::Entity as Categories;
@@ -62,7 +62,8 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive( Clone)]
+/// define the supported db connection
+#[derive(Clone)]
 struct DataSource {
     pub postgres: DatabaseConnection,
     pub mysql : DatabaseConnection,
@@ -80,27 +81,13 @@ struct FlashData {
     message: String,
 }
 
-
-/// sync table data from pg to mysql
 async fn sync_crates_table (
     Extension(ref data_source): Extension<DataSource>,
     mut cookies: Cookies,
 ) -> Result<PostResponse, (StatusCode, &'static str)> {
-    let models: Vec<categories::Model> = Categories::find()
-    .order_by_asc(categories::Column::Id)
-    .all(&data_source.postgres)
-    .await.expect("something wrong when sync categories");
 
-    let mut categories: Vec<categories::ActiveModel> = Vec::new();
-    // convert Model to ActiveModel
-    for model in models {
-        let category = model.into();
-        categories.push(category);
-    }
-
-    Categories::insert_many(categories)
-    .exec(&data_source.mysql)
-    .await.expect("something wrong when sync categories");
+    sync_table::<categories::Entity, categories::ActiveModel>(categories::Column::Id, data_source).await;
+    sync_table::<keywords::Entity, keywords::ActiveModel>(keywords::Column::Id, data_source).await;
 
     let data = FlashData {
         kind: "success".to_owned(),
@@ -109,3 +96,27 @@ async fn sync_crates_table (
     Ok(post_response(&mut cookies, data))
 
 }
+
+/// generics sync table by passing entity and active_model
+async fn sync_table<E, T> (id: impl ColumnTrait, data_source: &DataSource) 
+    where  
+    E: EntityTrait, 
+    T: ActiveModelTrait<Entity = E> + From<<E as EntityTrait>::Model> {
+
+    let models: Vec<E::Model> = E::find()
+    .order_by_asc(id)
+    .all(&data_source.postgres)
+    .await.expect("something wrong when sync categories");
+
+    println!("{:?}", models.get(0).as_ref());
+
+    let mut categories: Vec<T> = Vec::new();
+    // convert Model to ActiveModel
+    for model in models {
+        let category = model.into();
+        categories.push(category);
+    }
+    E::insert_many(categories)
+    .exec(&data_source.mysql)
+    .await.expect("something wrong when sync categories");
+ }

@@ -12,4 +12,5 @@ pub mod keywords;
 pub mod metadata;
 pub mod reserved_crate_names;
 pub mod versions;
+pub mod sync_history;
 

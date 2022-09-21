@@ -9,4 +9,5 @@ pub use super::keywords::Entity as Keywords;
 pub use super::metadata::Entity as Metadata;
 pub use super::reserved_crate_names::Entity as ReservedCrateNames;
 pub use super::versions::Entity as Versions;
+pub use super::sync_history::Entity as SyncHistory;
 

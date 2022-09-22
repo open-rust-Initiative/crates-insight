@@ -32,11 +32,13 @@ tower = "0.4.12"
 tower-http = { version = "0.3.3", features = ["fs"] }
 tower-cookies = "0.6.0"
 entity = { path = "entity" }
-
-
 dotenv = "0.15.0"
 tera = "1.15.0"
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+futures = "0.3.24"
+log = "0.4.17"
+threadpool = "1.8.1"
+#indicatif = "0.17.1"
 
 [dev-dependencies]
 

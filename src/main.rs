@@ -1,5 +1,6 @@
 mod flash;
 
+use async_std::path;
 use axum::{
     extract::{Extension, Form, Path, Query},
     http::StatusCode,
@@ -17,12 +18,12 @@ use flash::{post_response, PostResponse};
 
 use sea_orm::{
     prelude::*,
-    sea_query::{self, extension::postgres::Type},
     ConnectOptions, Database, InsertResult, QueryOrder, QuerySelect,
 };
 use serde::{Deserialize, Serialize};
 
 use futures;
+
 use std::{
     any::Any,
     env,
@@ -32,7 +33,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime}, process::Command,
+    time::{Duration}, process::{Command, Stdio},
 };
 
 use std::sync::mpsc::channel;
@@ -119,7 +120,7 @@ async fn download_file() -> Result<(), anyhow::Error> {
     let url = "http://static.crates.io/db-dump.tar.gz";
     // let url = "https://avatars.githubusercontent.com/u/112836202?v=4";
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("data/tests/fixtures/crates");
+    path.push("temp/");
 
     if !path.exists() {
         fs::create_dir_all(&path).unwrap();
@@ -132,24 +133,25 @@ async fn download_file() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn inport_postgres() {
-    let database_url = env::var("DATABASE_URL_PG").expect("DATABASE_URL_PG is not set in .env file");
-    let command = format!("{}{}{}","psql ", &database_url," < import.sql");
-    let output = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-                .args(["/C", &command])
-                .output()
-                .expect("failed to execute process")
-    } else {
-        Command::new("sh")
-                .arg("-c")
-                .arg(command)
-                .output()
-                .expect("failed to execute process")
-    };
-    
-    let output = output.stdout;
-    println!("command exec result is:{}", String::from_utf8(output).unwrap() );
+fn import_postgres() {
+
+    //TODO config password in env file
+    let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
+    base_dir.push_str("/temp");
+    let mut path_to_script = base_dir.clone();
+    // TODO need to know unzip file path
+    path_to_script.push_str("/2022-09-22-020046");
+    let mut cmd = 
+        Command::new("psql")
+                .args(["-v", &format!("{}{}","scriptdir=", path_to_script)])
+                .args(["-U", "postgres"])
+                .args(["-d", "postgres"])
+                .args(["-f", &format!("{}{}", base_dir, "/import.sql") ])
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .unwrap();
+    println!("{:?}", cmd.wait());
 }
 
 async fn sync_crates_table(
@@ -158,7 +160,7 @@ async fn sync_crates_table(
 ) -> Result<PostResponse, (StatusCode, &'static str)> {
     download_file().await.unwrap();
 
-    inport_postgres();
+    import_postgres();
 
     let result: Vec<sync_history::Model> = sync_history::Entity::find()
         .filter(sync_history::Column::Success.eq(0))

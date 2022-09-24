@@ -16,6 +16,8 @@ use flash::{post_response, PostResponse};
 
 // use categories::Entity as Categories;
 
+use flate2::read::GzDecoder;
+use tar::Archive;
 use sea_orm::{
     prelude::*,
     ConnectOptions, Database, InsertResult, QueryOrder, QuerySelect,
@@ -29,7 +31,7 @@ use std::{
     env,
     fs::{File, self},
     future::Future,
-    io::{self, Cursor, Write},
+    io::{self, Cursor, Write, BufReader},
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -116,31 +118,53 @@ pub struct DataSyncOptions {
     pub sync_date: Date,
 }
 
-async fn download_file() -> Result<(), anyhow::Error> {
-    let url = "http://static.crates.io/db-dump.tar.gz";
-    // let url = "https://avatars.githubusercontent.com/u/112836202?v=4";
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    path.push("temp/");
+/// download and unzip sql file
+async fn download_file() -> Result<String , anyhow::Error> {
 
-    if !path.exists() {
-        fs::create_dir_all(&path).unwrap();
-    }
-    path = path.join(Utc::now().timestamp().to_string() + "db-dump.tar.gz");
-    let path = path.to_str().unwrap().to_string();
+    let url = "http://static.crates.io/db-dump.tar.gz";
+    // construct base dir
+    let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
+    base_dir.push_str("/temp");
+
+    println!("download file... please wait");
     let resp = reqwest::get(url).await.unwrap();
-    let mut file = File::create(path).unwrap();
+    // let content = BufReader::new(resp);
+
+    let mut zip_path = base_dir.clone();
+    zip_path.push_str("/db-dump.tar.gz");
+    let mut file = File::create(&zip_path).unwrap();
     file.write_all(&resp.bytes().await?).unwrap();
-    Ok(())
+
+    println!("download success, unzip file... please wait");
+
+    let file = File::open(&zip_path)?;
+    let gz = GzDecoder::new(file);
+    let mut archive = Archive::new(gz);
+
+    // constuct the download file
+    let mut path_to_script = base_dir.clone();
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.to_owned().to_path_buf();
+        entry.unpack_in(&base_dir)?;
+        println!("{}", &path.display());
+        let path = path.into_os_string().into_string().unwrap();
+        if path.contains("import.sql") {
+            path_to_script.push('/');
+            path_to_script.push_str(path.strip_suffix("/import.sql").unwrap())
+        }
+    }
+    // TODO remove downlaod file later
+    Ok(path_to_script)
 }
 
-fn import_postgres() {
-
+/// get path_to_script from zip file and execute the import.sql file by psql
+fn import_postgres(path_to_script: String) {
+    println!("path in import{}", path_to_script);
     //TODO config password in env file
     let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
     base_dir.push_str("/temp");
-    let mut path_to_script = base_dir.clone();
-    // TODO need to know unzip file path
-    path_to_script.push_str("/2022-09-22-020046");
+
     let mut cmd = 
         Command::new("psql")
                 .args(["-v", &format!("{}{}","scriptdir=", path_to_script)])
@@ -158,9 +182,9 @@ async fn sync_crates_table(
     Extension(ref data_source): Extension<DataSource>,
     mut cookies: Cookies,
 ) -> Result<PostResponse, (StatusCode, &'static str)> {
-    download_file().await.unwrap();
+    let path_to_script = download_file().await.unwrap();
 
-    import_postgres();
+    import_postgres(path_to_script);
 
     let result: Vec<sync_history::Model> = sync_history::Entity::find()
         .filter(sync_history::Column::Success.eq(0))
@@ -232,6 +256,7 @@ async fn sync_data_by_date<E, T, A>(
 
         // It is might not possible to get only modifyed data hence
         // the created_at field will not updated when the row data modifyed
+        // so it need to clear all history data
         E::delete_many()
             .exec(&data_source.mysql)
             .await
@@ -249,8 +274,6 @@ async fn sync_data_by_date<E, T, A>(
             // let data = chunk_mutex_clone.lock().unwrap();
             let save_result =
                 E::insert_many(chunk.iter().map(|x| x.clone())).exec(&data_source.mysql);
-            // .await
-            // .expect("something wrong when save batch");
             // sender.send(1).expect("channel will be there waiting for the pool");
             futures_vec.push(save_result);
             // });

@@ -110,9 +110,9 @@ BEGIN;
 
     \copy "reserved_crate_names" ("name") FROM 'data/reserved_crate_names.csv' WITH CSV HEADER
 
-    \copy "teams" ("avatar", "github_id", "id", "login", "name", "org_id") FROM 'data/teams.csv' WITH CSV HEADER
+    -- \copy "teams" ("avatar", "github_id", "id", "login", "name", "org_id") FROM 'data/teams.csv' WITH CSV HEADER
 
-    \copy "users" ("gh_avatar", "gh_id", "gh_login", "id", "name") FROM 'data/users.csv' WITH CSV HEADER
+    -- \copy "users" ("gh_avatar", "gh_id", "gh_login", "id", "name") FROM 'data/users.csv' WITH CSV HEADER
 
     \copy "badges" ("attributes", "badge_type", "crate_id") FROM 'data/badges.csv' WITH CSV HEADER
 
@@ -120,13 +120,13 @@ BEGIN;
 
     \copy "crates_keywords" ("crate_id", "keyword_id") FROM 'data/crates_keywords.csv' WITH CSV HEADER
 
-    \copy "crate_owners" ("crate_id", "created_at", "created_by", "owner_id", "owner_kind") FROM 'data/crate_owners.csv' WITH CSV HEADER
+    -- \copy "crate_owners" ("crate_id", "created_at", "created_by", "owner_id", "owner_kind") FROM 'data/crate_owners.csv' WITH CSV HEADER
 
     \copy "versions" ("checksum", "crate_id", "crate_size", "created_at", "downloads", "features", "id", "license", "links", "num", "published_by", "updated_at", "yanked") FROM 'data/versions.csv' WITH CSV HEADER
 
-    \copy "dependencies" ("crate_id", "default_features", "explicit_name", "features", "id", "kind", "optional", "req", "target", "version_id") FROM 'data/dependencies.csv' WITH CSV HEADER
+    -- \copy "dependencies" ("crate_id", "default_features", "explicit_name", "features", "id", "kind", "optional", "req", "target", "version_id") FROM 'data/dependencies.csv' WITH CSV HEADER
 
-    \copy "version_downloads" ("date", "downloads", "version_id") FROM 'data/version_downloads.csv' WITH CSV HEADER
+    -- \copy "version_downloads" ("date", "downloads", "version_id") FROM 'data/version_downloads.csv' WITH CSV HEADER
 
 
     -- Drop the defaults again.

@@ -61,8 +61,12 @@ async fn main() -> anyhow::Result<()> {
     let server_url = format!("{}:{}", host, port);
 
     let mut opt = ConnectOptions::new(mysql_url.to_owned());
-    opt.max_connections(512)
-        .min_connections(8)
+    // max_connections is properly for double size of the cpu core
+    opt.max_connections(16)
+        .min_connections(4)
+        // wait for sea-orm new release of this config 
+        // https://github.com/SeaQL/sea-orm/pull/897/commits/3e50d50822bac4565d77e78bdc589d2403e1fb9c
+        // .acquire_timeout (5*60)
         .connect_timeout(Duration::from_secs(20))
         .idle_timeout(Duration::from_secs(8))
         .max_lifetime(Duration::from_secs(8))
@@ -119,9 +123,8 @@ pub struct DataSyncOptions {
 }
 
 /// download and unzip sql file
-async fn download_file() -> Result<String , anyhow::Error> {
+async fn download_file(url: &str) -> Result<String , anyhow::Error> {
 
-    let url = "http://static.crates.io/db-dump.tar.gz";
     // construct base dir
     let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
     base_dir.push_str("/temp");
@@ -141,11 +144,12 @@ async fn download_file() -> Result<String , anyhow::Error> {
     let gz = GzDecoder::new(file);
     let mut archive = Archive::new(gz);
 
-    // constuct the download file
     let mut path_to_script = base_dir.clone();
+    // search import.sql file in archive and get relative path
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_owned().to_path_buf();
+        // unpack each entry in to base_dir
         entry.unpack_in(&base_dir)?;
         println!("{}", &path.display());
         let path = path.into_os_string().into_string().unwrap();
@@ -154,13 +158,12 @@ async fn download_file() -> Result<String , anyhow::Error> {
             path_to_script.push_str(path.strip_suffix("/import.sql").unwrap())
         }
     }
-    // TODO remove downlaod file later
     Ok(path_to_script)
 }
 
 /// get path_to_script from zip file and execute the import.sql file by psql
 fn import_postgres(path_to_script: String) {
-    println!("path in import{}", path_to_script);
+    println!("path_to_script: {}", path_to_script);
     //TODO config password in env file
     let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
     base_dir.push_str("/temp");
@@ -176,13 +179,18 @@ fn import_postgres(path_to_script: String) {
                 .spawn()
                 .unwrap();
     println!("{:?}", cmd.wait());
+    // remove unzip file
+    fs::remove_dir_all(path_to_script).unwrap();
 }
 
 async fn sync_crates_table(
     Extension(ref data_source): Extension<DataSource>,
     mut cookies: Cookies,
 ) -> Result<PostResponse, (StatusCode, &'static str)> {
-    let path_to_script = download_file().await.unwrap();
+
+    let url = "http://static.crates.io/db-dump.tar.gz";
+
+    let path_to_script = download_file(url).await.unwrap();
 
     import_postgres(path_to_script);
 
@@ -208,11 +216,11 @@ async fn sync_crates_table(
     // sync_data_by_date::<categories::Entity, categories::ActiveModel>(data_source).await;
     // sync_data_by_date::<crates_categories::Entity, crates_categories::ActiveModel>(data_source).await;
     // sync_data_by_date::<crates_keywords::Entity, crates_keywords::ActiveModel>(data_source).await;
-    // sync_data_by_date::<crates::Entity, crates::Model, crates::ActiveModel>(data_source,crates::Column::Id,).await;
+    // sync_data_by_date::<crates::Entity, crates::Model, crates::ActiveModel>(data_source,crates::Column::Id).await;
     // sync_data_by_date::<keywords::Entity, keywords::ActiveModel>(data_source).await;
     // sync_data_by_date::<metadata::Entity, metadata::ActiveModel>(data_source).await;
     // sync_data_by_date::<reserved_crate_names::Entity, reserved_crate_names::ActiveModel>(data_source).await;
-    // sync_data_by_date::<versions::Entity, versions::ActiveModel>(data_source).await;
+    sync_data_by_date::<versions::Entity, versions::ActiveModel>(data_source, versions::Column::Id).await;
 
     let data = FlashData {
         kind: "success".to_owned(),
@@ -222,14 +230,13 @@ async fn sync_crates_table(
 }
 
 /// generics sync table by passing entity and active_model
-async fn sync_data_by_date<E, T, A>(
+async fn sync_data_by_date<E, A>(
     data_source: &DataSource,
     order_field: E::Column,
     // create_at: E::Column,
     // sync_ops: &DataSyncOptions,
 ) where
-    E: EntityTrait<Model = T>,
-    T: ModelTrait<Entity = E>,
+    E: EntityTrait,
     A: ActiveModelTrait<Entity = E> + From<<E as EntityTrait>::Model> + Send,
 {
     let models: Vec<E::Model> = E::find()
@@ -278,7 +285,7 @@ async fn sync_data_by_date<E, T, A>(
             futures_vec.push(save_result);
             // });
         }
-        print!("chunk size: {}", futures_vec.len());
+
         let res: Vec<Result<InsertResult<A>, DbErr>> = futures::future::join_all(futures_vec).await;
         for msg in res {
             match msg {
@@ -287,4 +294,23 @@ async fn sync_data_by_date<E, T, A>(
             }
         }
     }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::{env, fs, path::PathBuf};
+    use crate::{import_postgres, download_file};
+
+    // #[tokio::test]
+    // async fn test_import_postgres() {
+
+    //     let mut base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).into_os_string().into_string().unwrap();
+    //     base_dir.push_str("/temp/db-dump.tar.gz");
+
+
+    //     // let url = ".";
+    //     let path_to_script = download_file(&base_dir).await.unwrap();
+    //     import_postgres(path_to_script);
+    // }
 }

@@ -1,13 +1,12 @@
 mod flash;
 
-use async_std::path;
+
 use axum::{
-    extract::{Extension, Form, Path, Query},
+    extract::{Extension},
     http::StatusCode,
-    routing::{get, get_service, post},
+    routing::post,
     Router, Server,
 };
-use chrono::Utc;
 use entity::{
     badges, categories, crates, crates_categories, crates_keywords, keywords, metadata,
     reserved_crate_names, sync_history, versions,
@@ -24,26 +23,17 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 
-use futures;
-
 use std::{
-    any::Any,
     env,
     fs::{File, self},
-    future::Future,
-    io::{self, Cursor, Write, BufReader},
+    io::{Write},
     net::SocketAddr,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::{Duration}, process::{Command, Stdio},
+    process::{Command, Stdio}, time::Duration, path::Path,
 };
 
-use std::sync::mpsc::channel;
 use std::{
-    rc::{self},
     str::FromStr,
 };
-use threadpool::ThreadPool;
 use tower::ServiceBuilder;
 use tower_cookies::{CookieManagerLayer, Cookies};
 
@@ -106,11 +96,11 @@ struct DataSource {
     pub mysql: DatabaseConnection,
 }
 
-#[derive(Deserialize)]
-struct Params {
-    page: Option<u64>,
-    posts_per_page: Option<u64>,
-}
+// #[derive(Deserialize)]
+// struct Params {
+//     page: Option<u64>,
+//     posts_per_page: Option<u64>,
+// }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct FlashData {
@@ -211,18 +201,18 @@ async fn sync_crates_table(
         }
         None => todo!(),
     };
-    let sync_ops = DataSyncOptions {
-        sync_date: sync_date,
+    let _sync_ops = DataSyncOptions {
+        sync_date
     };
 
-    // sync_data_by_date::<badges::Entity, badges::ActiveModel>(data_source).await;
-    // sync_data_by_date::<categories::Entity, categories::ActiveModel>(data_source).await;
-    // sync_data_by_date::<crates_categories::Entity, crates_categories::ActiveModel>(data_source).await;
-    // sync_data_by_date::<crates_keywords::Entity, crates_keywords::ActiveModel>(data_source).await;
-    // sync_data_by_date::<crates::Entity, crates::Model, crates::ActiveModel>(data_source,crates::Column::Id).await;
-    // sync_data_by_date::<keywords::Entity, keywords::ActiveModel>(data_source).await;
-    // sync_data_by_date::<metadata::Entity, metadata::ActiveModel>(data_source).await;
-    // sync_data_by_date::<reserved_crate_names::Entity, reserved_crate_names::ActiveModel>(data_source).await;
+    sync_data_by_date::<badges::Entity, badges::ActiveModel>(data_source, badges::Column::CrateId).await;
+    sync_data_by_date::<categories::Entity, categories::ActiveModel>(data_source, categories::Column::Id).await;
+    sync_data_by_date::<crates_categories::Entity, crates_categories::ActiveModel>(data_source, crates_categories::Column::CrateId).await;
+    sync_data_by_date::<crates_keywords::Entity, crates_keywords::ActiveModel>(data_source, crates_keywords::Column::CrateId).await;
+    sync_data_by_date::<crates::Entity, crates::ActiveModel>(data_source,crates::Column::Id).await;
+    sync_data_by_date::<keywords::Entity, keywords::ActiveModel>(data_source,keywords::Column::Id).await;
+    sync_data_by_date::<metadata::Entity, metadata::ActiveModel>(data_source, metadata::Column::TotalDownloads).await;
+    sync_data_by_date::<reserved_crate_names::Entity, reserved_crate_names::ActiveModel>(data_source, reserved_crate_names::Column::Name).await;
     sync_data_by_date::<versions::Entity, versions::ActiveModel>(data_source, versions::Column::Id).await;
 
     let data = FlashData {
@@ -283,7 +273,7 @@ async fn sync_data_by_date<E, A>(
             // pool.execute(move || {
             // let data = chunk_mutex_clone.lock().unwrap();
             let save_result =
-                E::insert_many(chunk.iter().map(|x| x.clone())).exec(&data_source.mysql);
+                E::insert_many(chunk.iter().cloned()).exec(&data_source.mysql);
             // sender.send(1).expect("channel will be there waiting for the pool");
             futures_vec.push(save_result);
             // });
@@ -292,7 +282,7 @@ async fn sync_data_by_date<E, A>(
         let res: Vec<Result<InsertResult<A>, DbErr>> = futures::future::join_all(futures_vec).await;
         for msg in res {
             match msg {
-                Ok(obj) => println!("save succ"),
+                Ok(_) => println!("save succ"),
                 Err(error) => println!("{}", error),
             }
         }

@@ -123,7 +123,7 @@ pub struct DataSyncOptions {
 }
 
 /// download and unzip sql file
-async fn download_file(url: &str) -> Result<String , anyhow::Error> {
+async fn download_file(url: &str, file_name: &str) -> Result<String , anyhow::Error> {
 
     // construct base dir
     let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
@@ -134,7 +134,7 @@ async fn download_file(url: &str) -> Result<String , anyhow::Error> {
     // let content = BufReader::new(resp);
 
     let mut zip_path = base_dir.clone();
-    zip_path.push_str("/db-dump.tar.gz");
+    zip_path.push_str(file_name);
     let mut file = File::create(&zip_path).unwrap();
     file.write_all(&resp.bytes().await?).unwrap();
 
@@ -162,18 +162,16 @@ async fn download_file(url: &str) -> Result<String , anyhow::Error> {
 }
 
 /// get path_to_script from zip file and execute the import.sql file by psql
-fn import_postgres(path_to_script: String) {
+fn import_postgres(path_to_script: &str, import_sql_path: &str) {
     println!("path_to_script: {}", path_to_script);
     //TODO config password in env file
-    let mut base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
-    base_dir.push_str("/temp");
 
     let mut cmd = 
         Command::new("psql")
                 .args(["-v", &format!("{}{}","scriptdir=", path_to_script)])
                 .args(["-U", "postgres"])
                 .args(["-d", "postgres"])
-                .args(["-f", &format!("{}{}", base_dir, "/import.sql") ])
+                .args(["-f", import_sql_path])
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
                 .spawn()
@@ -188,11 +186,16 @@ async fn sync_crates_table(
     mut cookies: Cookies,
 ) -> Result<PostResponse, (StatusCode, &'static str)> {
 
+    // remote dump file url
     let url = "http://static.crates.io/db-dump.tar.gz";
 
-    let path_to_script = download_file(url).await.unwrap();
 
-    import_postgres(path_to_script);
+    let base_dir = env::current_dir().unwrap().into_os_string().into_string().unwrap();
+
+    //local data directory
+    let path_to_script = download_file(url,"/db-dump.tar.gz").await.unwrap();
+
+    import_postgres(&path_to_script, &format!("{}{}",base_dir, "/temp/import.sql"));
 
     let result: Vec<sync_history::Model> = sync_history::Entity::find()
         .filter(sync_history::Column::Success.eq(0))
@@ -298,19 +301,23 @@ async fn sync_data_by_date<E, A>(
 
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::{env, fs, path::PathBuf};
     use crate::{import_postgres, download_file};
 
-    // #[tokio::test]
-    // async fn test_import_postgres() {
+    #[tokio::test]
+    async fn test_download_and_unpack() {
+        let path_to_script = download_file("https://github.com/open-rust-initiative/crates-insight/raw/main/tests/db-dump.tar.gz", "test.tar.gz").await.unwrap();
+        println!("path_to_script: {}", path_to_script);
+        assert!(path_to_script.contains("2022-09-25-020017"));
+    }
 
-    //     let mut base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).into_os_string().into_string().unwrap();
-    //     base_dir.push_str("/temp/db-dump.tar.gz");
-
-
-    //     // let url = ".";
-    //     let path_to_script = download_file(&base_dir).await.unwrap();
-    //     import_postgres(path_to_script);
-    // }
+    #[tokio::test]
+    async fn test_import_postgres() {
+        let mut path_to_script = env::current_dir().unwrap().into_os_string().into_string().unwrap();
+        let mut import_sql_path = path_to_script.clone();
+        path_to_script.push_str("/temp/2022-09-25-020017");
+        import_sql_path.push_str("/temp/2022-09-25-020017/import.sql");
+        import_postgres(&path_to_script, &import_sql_path);
+    }
 }

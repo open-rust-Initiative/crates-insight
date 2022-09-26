@@ -312,12 +312,12 @@ pub mod tests {
         assert!(path_to_script.contains("2022-09-25-020017"));
     }
 
-    #[tokio::test]
-    async fn test_import_postgres() {
-        let mut path_to_script = env::current_dir().unwrap().into_os_string().into_string().unwrap();
-        let mut import_sql_path = path_to_script.clone();
-        path_to_script.push_str("/temp/2022-09-25-020017");
-        import_sql_path.push_str("/temp/2022-09-25-020017/import.sql");
-        import_postgres(&path_to_script, &import_sql_path);
-    }
+    // #[tokio::test]
+    // async fn test_import_postgres() {
+    //     let mut path_to_script = env::current_dir().unwrap().into_os_string().into_string().unwrap();
+    //     let mut import_sql_path = path_to_script.clone();
+    //     path_to_script.push_str("/temp/2022-09-25-020017");
+    //     import_sql_path.push_str("/temp/2022-09-25-020017/import.sql");
+    //     import_postgres(&path_to_script, &import_sql_path);
+    // }
 }
